@@ -1546,11 +1546,20 @@ const FIREBASE_SHARED_STORAGE_KEYS = APP_STORAGE_KEYS.filter(key => key !== 'cur
 const FIREBASE_CONFIG = window.SALESNILPAK_FIREBASE_CONFIG || {};
 const FIREBASE_DOC_PATH = window.SALESNILPAK_FIREBASE_DOC || 'salesnilpak/default';
 const FIREBASE_SAVE_DEBOUNCE_MS = 800;
+const NETLIFY_STATE_ENDPOINT = '/.netlify/functions/state';
+const NETLIFY_SAVE_DEBOUNCE_MS = 800;
+const NETLIFY_POLL_INTERVAL_MS = 12000;
 let firebaseDb = null;
 let firebaseDocRef = null;
 let firebaseSaveTimer = null;
 let firebaseApplyingRemoteData = false;
 let firebaseInitialSnapshotHandled = false;
+let netlifySaveTimer = null;
+let netlifySyncEnabled = false;
+let netlifyApplyingRemoteData = false;
+let netlifyLastUpdatedAt = '';
+let netlifyPollTimer = null;
+let appDataReadyForCloudSync = false;
 
 function getScopedStorageKey(key) {
     return `${STORAGE_NAMESPACE}.${key}`;
@@ -1586,6 +1595,9 @@ function storageGetItem(key, fallback = null) {
 function storageSetItem(key, value) {
     try {
         localStorage.setItem(getScopedStorageKey(key), value);
+        if (appDataReadyForCloudSync && FIREBASE_SHARED_STORAGE_KEYS.includes(key)) {
+            scheduleCloudSave();
+        }
     } catch (error) {
         console.error(`Storage saqlashda xato: ${key}`, error);
     }
@@ -1693,6 +1705,103 @@ function scheduleFirebaseSave(forceNow = false) {
     }
 }
 
+function applyRemoteSharedData(data) {
+    if (!applySharedAppData(data)) return false;
+    normalizeProducts();
+    normalizeExistingRecords();
+    normalizePricePresets();
+    normalizeOpeningBalances();
+    normalizeOpeningSummary();
+    normalizeCustomerRetroBonuses();
+    normalizeCustomerRetroBonusEntries();
+    normalizeMarginWithdrawals();
+    mergeDefaultCustomers();
+    normalizeAccounts();
+    saveSharedDataToLocalStorage();
+    renderAll();
+    return true;
+}
+
+function scheduleNetlifySave(forceNow = false) {
+    if (!netlifySyncEnabled || netlifyApplyingRemoteData) return;
+    clearTimeout(netlifySaveTimer);
+    const saveToNetlify = async () => {
+        if (!netlifySyncEnabled) return;
+        const payload = collectSharedAppData();
+        try {
+            const response = await fetch(NETLIFY_STATE_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const result = await response.json().catch(() => null);
+            netlifyLastUpdatedAt = result?.updatedAt || payload.updatedAt || netlifyLastUpdatedAt;
+        } catch (error) {
+            console.warn('Netlify saqlashda xato:', error);
+        }
+    };
+    if (forceNow) {
+        saveToNetlify();
+    } else {
+        netlifySaveTimer = setTimeout(saveToNetlify, NETLIFY_SAVE_DEBOUNCE_MS);
+    }
+}
+
+function scheduleCloudSave(forceNow = false) {
+    scheduleNetlifySave(forceNow);
+    scheduleFirebaseSave(forceNow);
+}
+
+async function fetchNetlifyState() {
+    const response = await fetch(NETLIFY_STATE_ENDPOINT, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+}
+
+function startNetlifyPolling() {
+    clearInterval(netlifyPollTimer);
+    netlifyPollTimer = setInterval(async () => {
+        if (!netlifySyncEnabled || netlifyApplyingRemoteData) return;
+        try {
+            const remote = await fetchNetlifyState();
+            const remoteUpdatedAt = remote?.updatedAt || '';
+            if (!remote?.data || !remoteUpdatedAt || remoteUpdatedAt === netlifyLastUpdatedAt) return;
+            netlifyLastUpdatedAt = remoteUpdatedAt;
+            netlifyApplyingRemoteData = true;
+            try {
+                applyRemoteSharedData(remote.data);
+            } finally {
+                netlifyApplyingRemoteData = false;
+            }
+        } catch (error) {
+            console.warn('Netlify maʼlumotlarini yangilashda xato:', error);
+        }
+    }, NETLIFY_POLL_INTERVAL_MS);
+}
+
+async function initializeNetlifySync() {
+    try {
+        const remote = await fetchNetlifyState();
+        netlifySyncEnabled = true;
+        netlifyLastUpdatedAt = remote?.updatedAt || '';
+        if (remote?.data && Object.keys(remote.data).length) {
+            netlifyApplyingRemoteData = true;
+            try {
+                applyRemoteSharedData(remote.data);
+            } finally {
+                netlifyApplyingRemoteData = false;
+            }
+        } else {
+            scheduleNetlifySave(true);
+        }
+        startNetlifyPolling();
+        console.info('Netlify state sync ishga tushdi.');
+    } catch (error) {
+        console.info('Netlify state funksiyasi topilmadi yoki ishlamadi. Dastur localStorage bilan ishlayapti.', error);
+    }
+}
+
 async function initializeFirebaseSync() {
     if (!hasUsableFirebaseConfig()) {
         console.info('Firebase config kiritilmagan. Dastur localStorage bilan ishlayapti.');
@@ -1720,19 +1829,7 @@ async function initializeFirebaseSync() {
 
             firebaseApplyingRemoteData = true;
             try {
-                applySharedAppData(snapshot.data());
-                normalizeProducts();
-                normalizeExistingRecords();
-                normalizePricePresets();
-                normalizeOpeningBalances();
-                normalizeOpeningSummary();
-                normalizeCustomerRetroBonuses();
-                normalizeCustomerRetroBonusEntries();
-                normalizeMarginWithdrawals();
-                mergeDefaultCustomers();
-                normalizeAccounts();
-                saveSharedDataToLocalStorage();
-                renderAll();
+                applyRemoteSharedData(snapshot.data());
             } finally {
                 firebaseApplyingRemoteData = false;
                 firebaseInitialSnapshotHandled = true;
@@ -4440,7 +4537,7 @@ function saveAccounts() {
 
 function persistAndRender() {
     saveSharedDataToLocalStorage();
-    scheduleFirebaseSave();
+    scheduleCloudSave();
     renderAll();
 }
 
@@ -6767,8 +6864,10 @@ if (currentUser) {
 } else {
     renderAll();
 }
+appDataReadyForCloudSync = true;
+initializeNetlifySync();
 initializeFirebaseSync();
-window.addEventListener('online', () => scheduleFirebaseSave(true));
+window.addEventListener('online', () => scheduleCloudSave(true));
 </script>
 
 </body>
