@@ -1071,6 +1071,7 @@ body.sidebar-open {
                 <button onclick="applySectionFilter('cash')" class="action">Filtr</button>
                 <button onclick="resetSectionFilter('cash')" class="action">Filtrdan chiqarish</button>
                 <button onclick="exportTableToExcel('cashTable', 'kassa')" class="action">Excelga eksport</button>
+                <button id="selectedCashExportButton" onclick="exportSelectedCashToExcel()" class="action">Tanlanganni Excelga</button>
             </div>
         </div>
         <div class="summary-card">
@@ -1080,11 +1081,11 @@ body.sidebar-open {
         <table id="cashTable">
             <thead>
                 <tr>
+                    <th><input type="checkbox" id="cashSelectAll" onchange="toggleAllVisibleCashEntries(this.checked)"></th>
                     <th>#</th>
-                    <th>Mijoz</th>
-                    <th>Turi</th>
-                    <th>Usul</th>
                     <th>Sana</th>
+                    <th>Turi</th>
+                    <th>Haydovchi/Mijoz</th>
                     <th>Summa</th>
                     <th>Izoh</th>
                     <th>Amallar</th>
@@ -1869,6 +1870,7 @@ let editingCustomerRetroBonusEntryIndex = null;
 let currentCustomerProfile = '';
 let customerProfileReturnSection = 'customers';
 let selectedSaleOrderNos = [];
+let selectedCashEntryIds = [];
 let orderProductSearchTerm = '';
 let customerSearchTerm = '';
 let productSearchTerm = '';
@@ -3627,6 +3629,10 @@ function normalizeExistingRecords() {
             nextEntry.customer = '';
             changed = true;
         }
+        if (typeof nextEntry.id !== 'string' || !nextEntry.id) {
+            nextEntry.id = `cash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            changed = true;
+        }
         if (changed) cashChanged = true;
         return nextEntry;
     });
@@ -4472,12 +4478,6 @@ function showSection(id) {
         return;
     }
     if (!document.getElementById(id)) return;
-    if (id === 'sales') {
-        document.getElementById('salesStartDate').value = "";
-        document.getElementById('salesEndDate').value = "";
-        document.getElementById('salesPreset').value = 'all';
-        syncAppliedDateFilter('sales');
-    }
     currentSectionId = id;
     document.querySelectorAll('.section').forEach(section => section.style.display = 'none');
     document.getElementById(id).style.display = 'block';
@@ -6413,13 +6413,113 @@ function addCashEntry() {
     if (!amount || amount <= 0) return alert("Summani kiriting!");
     if (type === 'income' && !customer) return alert("Kirim uchun mijozni tanlang!");
 
-    cashEntries.push({ customer, type, method, date, amount, note });
-    document.getElementById('cashCustomer').value = "";
+    cashEntries.push({ id: `cash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, customer, type, method, date, amount, note });
     document.getElementById('cashEntryAmount').value = "";
-    document.getElementById('cashEntryDate').value = getTodayDate();
     document.getElementById('cashEntryNote').value = "";
     renderCashCustomerBalance();
     persistAndRender();
+}
+
+function getCashEntryId(entry, index = cashEntries.indexOf(entry)) {
+    if (!entry) return '';
+    if (!entry.id) {
+        entry.id = `cash-${Date.now()}-${index >= 0 ? index : cashEntries.length}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+    return entry.id;
+}
+
+function getCashEntryDisplayName(entry) {
+    const name = String(entry?.driver || entry?.customer || '').trim();
+    return name || '-';
+}
+
+function getCashEntryTypeLabel(entry) {
+    return entry?.type === 'income' ? 'Kirim' : 'Chiqim';
+}
+
+function isCashEntrySelected(entry) {
+    const id = getCashEntryId(entry);
+    return selectedCashEntryIds.includes(id);
+}
+
+function toggleCashEntrySelection(id, checked) {
+    if (!id) return;
+    if (checked) {
+        if (!selectedCashEntryIds.includes(id)) selectedCashEntryIds.push(id);
+    } else {
+        selectedCashEntryIds = selectedCashEntryIds.filter(value => value !== id);
+    }
+    updateSelectedCashExportButton();
+    syncCashSelectAllState();
+}
+
+function getVisibleCashEntryIds() {
+    return Array.from(document.querySelectorAll('#cashTable tbody tr[data-cash-entry-id]'))
+        .filter(row => row.style.display !== 'none')
+        .map(row => row.dataset.cashEntryId)
+        .filter(Boolean);
+}
+
+function toggleAllVisibleCashEntries(checked) {
+    const visibleIds = getVisibleCashEntryIds();
+    if (checked) {
+        selectedCashEntryIds = Array.from(new Set([...selectedCashEntryIds, ...visibleIds]));
+    } else {
+        selectedCashEntryIds = selectedCashEntryIds.filter(id => !visibleIds.includes(id));
+    }
+    renderCashEntries();
+}
+
+function syncCashSelectAllState() {
+    const selectAll = document.getElementById('cashSelectAll');
+    if (!selectAll) return;
+    const visibleIds = getVisibleCashEntryIds();
+    const selectedVisibleCount = visibleIds.filter(id => selectedCashEntryIds.includes(id)).length;
+    selectAll.checked = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
+    selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleIds.length;
+}
+
+function updateSelectedCashExportButton() {
+    const button = document.getElementById('selectedCashExportButton');
+    if (!button) return;
+    const count = selectedCashEntryIds.length;
+    button.innerText = count ? `Tanlanganni Excelga (${count})` : 'Tanlanganni Excelga';
+}
+
+function exportSelectedCashToExcel() {
+    const selectedEntries = cashEntries.filter(entry => selectedCashEntryIds.includes(getCashEntryId(entry)));
+    if (!selectedEntries.length) return alert("Avval Kassa bo'limidan yozuvlarni belgilang!");
+
+    const tempTable = document.createElement('table');
+    tempTable.id = 'selectedCashExportTempTable';
+    tempTable.style.display = 'none';
+    tempTable.innerHTML = `
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Sana</th>
+                <th>Turi</th>
+                <th>Haydovchi/Mijoz</th>
+                <th>Summa</th>
+                <th>Izoh</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${selectedEntries.map((entry, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${formatDate(entry.date)}</td>
+                    <td>${getCashEntryTypeLabel(entry)}</td>
+                    <td>${escapeHtml(getCashEntryDisplayName(entry))}</td>
+                    <td>${formatNumber(entry.amount)}</td>
+                    <td>${entry.note ? escapeHtml(entry.note) : '-'}</td>
+                </tr>
+            `).join('')}
+        </tbody>
+    `;
+    document.body.appendChild(tempTable);
+    exportTableToExcel(tempTable.id, 'tanlangan_kassa_yozuvlari');
+    tempTable.remove();
 }
 
 function renderCashEntries() {
@@ -6431,16 +6531,16 @@ function renderCashEntries() {
 
     filteredEntries.forEach(entry => {
         const index = cashEntries.indexOf(entry);
-        const typeLabel = entry.type === 'income' ? 'Kirim' : 'Chiqim';
-        const methodLabel = entry.method === 'cash' ? 'Naqd' : 'Perechisleniya';
-        tbody.innerHTML += `<tr>
+        const entryId = getCashEntryId(entry, index);
+        const typeLabel = getCashEntryTypeLabel(entry);
+        tbody.innerHTML += `<tr data-cash-entry-id="${escapeHtml(entryId)}">
+            <td><input type="checkbox" ${isCashEntrySelected(entry) ? 'checked' : ''} onchange="toggleCashEntrySelection('${escapeHtml(entryId)}', this.checked)"></td>
             <td>${index + 1}</td>
-            <td>${entry.customer || '-'}</td>
-            <td>${typeLabel}</td>
-            <td>${methodLabel}</td>
             <td>${formatDate(entry.date)}</td>
-            <td>${formatNumber(entry.amount)}</td>
-            <td>${entry.note || '-'}</td>
+            <td>${typeLabel}</td>
+            <td>${escapeHtml(getCashEntryDisplayName(entry))}</td>
+            <td style="text-align:right;font-weight:600">${formatNumber(entry.amount)}</td>
+            <td>${entry.note ? escapeHtml(entry.note) : '-'}</td>
             <td>
                 ${allowEdit ? `<button class="action" onclick="editCashEntry(${index})">Tahrirlash</button>
                 <button class="action" onclick="deleteCashEntry(${index})">O'chirish</button>` : '-'}
@@ -6452,6 +6552,9 @@ function renderCashEntries() {
         tbody.innerHTML = `<tr data-empty-row="true"><td colspan="8">Tanlangan oraliqda kassa yozuvi topilmadi.</td></tr>`;
     }
     applyTablePagination('cashTable', 'cashTable', 'renderCashEntries');
+    selectedCashEntryIds = selectedCashEntryIds.filter(id => cashEntries.some(entry => getCashEntryId(entry) === id));
+    updateSelectedCashExportButton();
+    syncCashSelectAllState();
 }
 
 function editCashEntry(index) {
@@ -6471,14 +6574,16 @@ function editCashEntry(index) {
     if (note === null) return;
     if (type === 'income' && !customer.trim()) return alert("Kirim uchun mijoz kiriting!");
 
-    cashEntries[index] = { customer: customer.trim(), type, method, date, amount, note: note.trim() };
+    cashEntries[index] = { ...entry, customer: customer.trim(), type, method, date, amount, note: note.trim() };
     persistAndRender();
 }
 
 function deleteCashEntry(index) {
     if (!ensureSectionEditPermission('cash', "Kassa yozuvini o'chirish")) return;
     if (!confirm("Kassa yozuvini o'chirmoqchimisiz?")) return;
+    const removedId = getCashEntryId(cashEntries[index], index);
     cashEntries.splice(index, 1);
+    selectedCashEntryIds = selectedCashEntryIds.filter(id => id !== removedId);
     persistAndRender();
 }
 
