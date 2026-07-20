@@ -1925,7 +1925,7 @@ const csvDefaultCustomers = [
     'Yunusobod(Magazin)'
 ];
 const CUSTOMER_DEFAULTS_SEEDED_KEY = 'customerDefaultsSeeded';
-const PRODUCT_LIMIT = 80;
+const PRODUCT_LIMIT = 100;
 const productNameTranslations = {
     'Salfetki 24x22 sm "Nilpak" 40 sht': 'Салфетки 24*22 см "Nilpak" 40шт.',
     'Salfetki 22x22 sm "Nilpak" 50 sht': 'Салфетки 22*22 см "Nilpak" 50шт.',
@@ -2874,7 +2874,7 @@ function resetSectionFilter(section) {
     if (!config) return;
 
     if (section === 'dashboard') {
-        applyDatePreset('dashboard', 'currentMonth');
+        applyDatePreset('dashboard', 'all');
     } else if (section === 'dashboardMonthlyChart') {
         const todayDate = new Date();
         const startInput = document.getElementById('dashboardMonthlyChartStartDate');
@@ -4380,7 +4380,7 @@ function resetDateInputs() {
     if (openingMarginDate && !openingMarginDate.value) openingMarginDate.value = today;
     const marginWithdrawDate = document.getElementById('marginWithdrawDate');
     if (marginWithdrawDate && !marginWithdrawDate.value) marginWithdrawDate.value = today;
-    applyDatePreset('dashboard', 'currentMonth');
+    applyDatePreset('dashboard', 'all');
     document.getElementById('salesStartDate').value = "";
     document.getElementById('salesEndDate').value = "";
     document.getElementById('salesPreset').value = 'all';
@@ -4407,7 +4407,7 @@ function resetDateInputs() {
 }
 
 function resetDashboardDateRange() {
-    applyDatePreset('dashboard', 'currentMonth');
+    applyDatePreset('dashboard', 'all');
 }
 
 function resetSalesDateRange() {
@@ -4848,7 +4848,10 @@ function renderCustomerProfile() {
             <td>${formatNumber(sale.total)}</td>
             <td>${formatNumber(sale.margin)}</td>
             <td>${paymentLabel}</td>
-            <td><button class="action" onclick="event.stopPropagation(); editSale(${saleIndex})">Tahrirlash</button></td>
+            <td>
+                <button class="action" onclick="event.stopPropagation(); exportInvoiceToExcel(${saleIndex})">Nakladnoy Excel</button>
+                <button class="action" onclick="event.stopPropagation(); editSale(${saleIndex})">Tahrirlash</button>
+            </td>
         </tr>`;
     });
     if (!actData.salesHistory.length) {
@@ -6946,28 +6949,33 @@ function renderAll() {
     safeExecute('applySectionAccessStates', () => applySectionAccessStates());
 }
 
-mergeDefaultProducts();
-removeDeprecatedDefaultProducts();
-trimProductsToLimit();
-normalizeProducts();
-renameProductsToRussian();
-normalizeExistingRecords();
-normalizePricePresets();
-normalizeOpeningBalances();
-normalizeOpeningSummary();
-normalizeCustomerRetroBonuses();
-normalizeCustomerRetroBonusEntries();
-normalizeMarginWithdrawals();
-mergeDefaultCustomers();
-normalizeAppSettings();
-normalizeAccounts();
-resetDateInputs();
-clearOrderDraft();
-updateAuthUI();
-if (currentUser) {
-    showSection('dashboard');
-} else {
-    renderAll();
+async function initializeApp() {
+    mergeDefaultProducts();
+    removeDeprecatedDefaultProducts();
+    trimProductsToLimit();
+    normalizeProducts();
+    renameProductsToRussian();
+    normalizeExistingRecords();
+    normalizePricePresets();
+    normalizeOpeningBalances();
+    normalizeOpeningSummary();
+    normalizeCustomerRetroBonuses();
+    normalizeCustomerRetroBonusEntries();
+    normalizeMarginWithdrawals();
+    mergeDefaultCustomers();
+    normalizeAppSettings();
+    normalizeAccounts();
+    resetDateInputs();
+    clearOrderDraft();
+    appDataReadyForCloudSync = true;
+    await initializeNetlifySync();
+    initializeFirebaseSync();
+    updateAuthUI();
+    if (currentUser) {
+        showSection('dashboard');
+    } else {
+        renderAll();
+    }
 }
 appDataReadyForCloudSync = true;
 initializeNetlifySync();
