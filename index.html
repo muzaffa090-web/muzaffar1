@@ -6977,8 +6977,9 @@ async function initializeApp() {
         renderAll();
     }
 }
-
-initializeApp();
+appDataReadyForCloudSync = true;
+initializeNetlifySync();
+initializeFirebaseSync();
 window.addEventListener('online', () => scheduleCloudSave(true));
 </script>
 
