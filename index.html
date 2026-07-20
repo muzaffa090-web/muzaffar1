@@ -6973,40 +6973,36 @@ function renderAll() {
 }
 
 async function initializeApp() {
-    try {
-        mergeDefaultProducts();
-        removeDeprecatedDefaultProducts();
-        trimProductsToLimit();
-        normalizeProducts();
-        renameProductsToRussian();
-        normalizeExistingRecords();
-        normalizePricePresets();
-        normalizeOpeningBalances();
-        normalizeOpeningSummary();
-        normalizeCustomerRetroBonuses();
-        normalizeCustomerRetroBonusEntries();
-        normalizeMarginWithdrawals();
-        mergeDefaultCustomers();
-        normalizeAppSettings();
-        normalizeAccounts();
-        resetDateInputs();
-        clearOrderDraft();
-        appDataReadyForCloudSync = true;
-        await initializeNetlifySync();
-        initializeFirebaseSync();
-        updateAuthUI();
-        if (currentUser) {
-            showSection('dashboard');
-        } else {
-            renderAll();
-        }
-    } finally {
-        document.body.classList.remove('app-loading');
-        document.body.classList.add('app-ready');
+    mergeDefaultProducts();
+    removeDeprecatedDefaultProducts();
+    trimProductsToLimit();
+    normalizeProducts();
+    renameProductsToRussian();
+    normalizeExistingRecords();
+    normalizePricePresets();
+    normalizeOpeningBalances();
+    normalizeOpeningSummary();
+    normalizeCustomerRetroBonuses();
+    normalizeCustomerRetroBonusEntries();
+    normalizeMarginWithdrawals();
+    mergeDefaultCustomers();
+    normalizeAppSettings();
+    normalizeAccounts();
+    resetDateInputs();
+    clearOrderDraft();
+    appDataReadyForCloudSync = true;
+    await initializeNetlifySync();
+    initializeFirebaseSync();
+    updateAuthUI();
+    if (currentUser) {
+        showSection('dashboard');
+    } else {
+        renderAll();
     }
 }
-
-initializeApp();
+appDataReadyForCloudSync = true;
+initializeNetlifySync();
+initializeFirebaseSync();
 window.addEventListener('online', () => scheduleCloudSave(true));
 </script>
 
