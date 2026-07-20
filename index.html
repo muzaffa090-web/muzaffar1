@@ -6,6 +6,27 @@
 <title>Mini Sales Doctor</title>
 <style>
 body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f6f8; }
+body.app-loading .login-screen,
+body.app-loading .sidebar,
+body.app-loading .main,
+body.app-loading .mobile-topbar {
+    display: none !important;
+}
+.app-loading-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 45%, #e2e8f0 100%);
+    color: #1e293b;
+    font-size: 18px;
+    font-weight: 700;
+}
+body.app-loading .app-loading-overlay {
+    display: flex;
+}
 .sidebar {
     position: fixed;
     top: 0;
@@ -648,7 +669,8 @@ body.sidebar-open {
 }
 </style>
 </head>
-<body>
+<body class="app-loading">
+<div id="appLoadingOverlay" class="app-loading-overlay">Ma'lumotlar yuklanmoqda...</div>
 
 <div id="loginScreen" class="login-screen" style="display:none">
     <div class="login-card">
@@ -1550,7 +1572,6 @@ const FIREBASE_SAVE_DEBOUNCE_MS = 800;
 const NETLIFY_STATE_ENDPOINT = '/.netlify/functions/state';
 const NETLIFY_SAVE_DEBOUNCE_MS = 800;
 const NETLIFY_POLL_INTERVAL_MS = 12000;
-const NETLIFY_FETCH_TIMEOUT_MS = 2500;
 let firebaseDb = null;
 let firebaseDocRef = null;
 let firebaseSaveTimer = null;
@@ -1755,19 +1776,10 @@ function scheduleCloudSave(forceNow = false) {
     scheduleFirebaseSave(forceNow);
 }
 
-async function fetchNetlifyState(timeoutMs = NETLIFY_FETCH_TIMEOUT_MS) {
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-    try {
-        const response = await fetch(NETLIFY_STATE_ENDPOINT, {
-            cache: 'no-store',
-            signal: controller?.signal
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-    } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-    }
+async function fetchNetlifyState() {
+    const response = await fetch(NETLIFY_STATE_ENDPOINT, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
 }
 
 function startNetlifyPolling() {
@@ -6960,7 +6972,7 @@ function renderAll() {
     safeExecute('applySectionAccessStates', () => applySectionAccessStates());
 }
 
-function initializeApp() {
+async function initializeApp() {
     mergeDefaultProducts();
     removeDeprecatedDefaultProducts();
     trimProductsToLimit();
@@ -6978,18 +6990,19 @@ function initializeApp() {
     normalizeAccounts();
     resetDateInputs();
     clearOrderDraft();
+    appDataReadyForCloudSync = true;
+    await initializeNetlifySync();
+    initializeFirebaseSync();
     updateAuthUI();
     if (currentUser) {
         showSection('dashboard');
     } else {
         renderAll();
     }
-    appDataReadyForCloudSync = true;
-    initializeNetlifySync();
-    initializeFirebaseSync();
 }
-
-initializeApp();
+appDataReadyForCloudSync = true;
+initializeNetlifySync();
+initializeFirebaseSync();
 window.addEventListener('online', () => scheduleCloudSave(true));
 </script>
 
