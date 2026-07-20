@@ -1572,7 +1572,6 @@ const FIREBASE_SAVE_DEBOUNCE_MS = 800;
 const NETLIFY_STATE_ENDPOINT = '/.netlify/functions/state';
 const NETLIFY_SAVE_DEBOUNCE_MS = 800;
 const NETLIFY_POLL_INTERVAL_MS = 12000;
-const NETLIFY_FETCH_TIMEOUT_MS = 2500;
 let firebaseDb = null;
 let firebaseDocRef = null;
 let firebaseSaveTimer = null;
@@ -1777,19 +1776,10 @@ function scheduleCloudSave(forceNow = false) {
     scheduleFirebaseSave(forceNow);
 }
 
-async function fetchNetlifyState(timeoutMs = NETLIFY_FETCH_TIMEOUT_MS) {
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-    try {
-        const response = await fetch(NETLIFY_STATE_ENDPOINT, {
-            cache: 'no-store',
-            signal: controller?.signal
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-    } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-    }
+async function fetchNetlifyState() {
+    const response = await fetch(NETLIFY_STATE_ENDPOINT, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
 }
 
 function startNetlifyPolling() {
@@ -6983,42 +6973,36 @@ function renderAll() {
 }
 
 async function initializeApp() {
-    try {
-        mergeDefaultProducts();
-        removeDeprecatedDefaultProducts();
-        trimProductsToLimit();
-        normalizeProducts();
-        renameProductsToRussian();
-        normalizeExistingRecords();
-        normalizePricePresets();
-        normalizeOpeningBalances();
-        normalizeOpeningSummary();
-        normalizeCustomerRetroBonuses();
-        normalizeCustomerRetroBonusEntries();
-        normalizeMarginWithdrawals();
-        mergeDefaultCustomers();
-        normalizeAppSettings();
-        normalizeAccounts();
-        resetDateInputs();
-        clearOrderDraft();
-        appDataReadyForCloudSync = true;
-        await initializeNetlifySync().catch(error => {
-            console.warn('Netlify boshlang‘ich yuklash kechikdi, local ma’lumotlar bilan davom etildi:', error);
-        });
-        initializeFirebaseSync();
-        updateAuthUI();
-        if (currentUser) {
-            showSection('dashboard');
-        } else {
-            renderAll();
-        }
-    } finally {
-        document.body.classList.remove('app-loading');
-        document.body.classList.add('app-ready');
+    mergeDefaultProducts();
+    removeDeprecatedDefaultProducts();
+    trimProductsToLimit();
+    normalizeProducts();
+    renameProductsToRussian();
+    normalizeExistingRecords();
+    normalizePricePresets();
+    normalizeOpeningBalances();
+    normalizeOpeningSummary();
+    normalizeCustomerRetroBonuses();
+    normalizeCustomerRetroBonusEntries();
+    normalizeMarginWithdrawals();
+    mergeDefaultCustomers();
+    normalizeAppSettings();
+    normalizeAccounts();
+    resetDateInputs();
+    clearOrderDraft();
+    appDataReadyForCloudSync = true;
+    await initializeNetlifySync();
+    initializeFirebaseSync();
+    updateAuthUI();
+    if (currentUser) {
+        showSection('dashboard');
+    } else {
+        renderAll();
     }
 }
-
-initializeApp();
+appDataReadyForCloudSync = true;
+initializeNetlifySync();
+initializeFirebaseSync();
 window.addEventListener('online', () => scheduleCloudSave(true));
 </script>
 
